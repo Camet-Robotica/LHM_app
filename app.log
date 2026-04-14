@@ -1,0 +1,10 @@
+[2026-04-14 10:42:27] INFO [MainApp] Stylesheet cargado: C:\Users\herna\OneDrive\Desktop\LHM_app\app\assets\style.qss
+[2026-04-14 10:42:27] INFO [MainApp] Aplicación iniciada.
+[2026-04-14 11:07:45] INFO [MainApp] Stylesheet cargado: C:\Users\herna\OneDrive\Desktop\LHM_app\app\assets\style.qss
+[2026-04-14 11:07:45] INFO [MainApp] Aplicación iniciada.
+[2026-04-14 11:08:44] CRITICAL [CaptureWorker] Error fatal en CaptureWorker: No module named 'capture'
+Traceback (most recent call last):
+  File "C:\Users\herna\OneDrive\Desktop\LHM_app\app\core\capture_worker.py", line 48, in run
+    from capture import TelemetryLogger
+ModuleNotFoundError: No module named 'capture'
+[2026-04-14 11:09:21] INFO [HardwareTelemetry] Cache sincronizada con BD: 44 sensores conocidos.
