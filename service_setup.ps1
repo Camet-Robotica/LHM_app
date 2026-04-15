@@ -1,11 +1,10 @@
-$TaskName = "LHM_Capture_Task"
-$Description = "Captura de telemetría de hardware (LHM) al iniciar el sistema."
+$TaskName = "LHM Telemetry Agent"
+$Description = "Agente de telemetría LHM (System Tray) con permisos elevados."
 
-# Carpeta actual
 $WorkingDir = $PSScriptRoot
 if (-not $WorkingDir) { $WorkingDir = Get-Location }
 
-$RunScript = Join-Path $WorkingDir "run_capture.ps1"
+$RunExe = Join-Path $WorkingDir "Updater.exe"
 
 # 1. Eliminar tarea existente si ya estaba creada
 if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
@@ -13,23 +12,22 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 }
 
-# 2. Configurar el comando para correr en segundo plano (PowerShell oculto)
-$Action = New-ScheduledTaskAction -Execute "powershell.exe" `
-    -Argument "-ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File `"$RunScript`"" `
-    -WorkingDirectory $WorkingDir
+# 2. Configurar el comando para correr el ejecutable (la GUI se auto-oculta en bandeja)
+$Action = New-ScheduledTaskAction -Execute $RunExe -WorkingDirectory $WorkingDir
 
-# 3. Disparador: Al iniciar el equipo (At startup)
-$Trigger = New-ScheduledTaskTrigger -AtStartup
+# 3. Disparador: Al iniciar sesión
+$Trigger = New-ScheduledTaskTrigger -AtLogOn
 
-# 4. Configuración: Ejecutar con Privilege Más Alto (System/Admin)
-$Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+# 4. Configuración principal: Ejecutar con Privilege Más Alto y de forma Interactiva
+# "BUILTIN\Administrators" permite que se vea el System Tray en la cuenta actual
+$Principal = New-ScheduledTaskPrincipal -GroupId "BUILTIN\Administrators" -RunLevel Highest
 
-# 5. Ajustes adicionales para que no se detenga sola y sea infinita
+# 5. Ajustes adicionales
 $Settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
     -StartWhenAvailable `
-    -ExecutionTimeLimit (New-TimeSpan -Days 0) # Desactiva el límite de 72 horas
+    -ExecutionTimeLimit (New-TimeSpan -Days 0) # Infinito
 
 # 6. Registro de la tarea
 Register-ScheduledTask -TaskName $TaskName `
@@ -39,8 +37,6 @@ Register-ScheduledTask -TaskName $TaskName `
                        -Principal $Principal `
                        -Settings $Settings
 
-Write-Host "[OK] Tarea Programada '$TaskName' creada correctamente."
-Write-Host "--------------------------------------------------------"
-Write-Host "La captura se iniciará automáticamente en cada reinicio."
-Write-Host "Para probarla ahora mismo, ejecuta en PowerShell (Admin):"
-Write-Host "Start-ScheduledTask -TaskName '$TaskName'"
+Write-Host "[OK] Tarea Programada interactiva '$TaskName' creada correctamente."
+Write-Host "La app lanzara Updater.exe -> LHM_Capture.exe de forma automatica en cada inicio."
+
