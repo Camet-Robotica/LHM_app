@@ -19,8 +19,8 @@ $Action = New-ScheduledTaskAction -Execute $RunExe -WorkingDirectory $WorkingDir
 $Trigger = New-ScheduledTaskTrigger -AtLogOn
 
 # 4. Configuración principal: Ejecutar con Privilege Más Alto y de forma Interactiva
-# "BUILTIN\Administrators" permite que se vea el System Tray en la cuenta actual
-$Principal = New-ScheduledTaskPrincipal -GroupId "BUILTIN\Administrators" -RunLevel Highest
+# "S-1-5-32-544" es el identificador (SID) universal de Administradores en cualquier idioma
+$Principal = New-ScheduledTaskPrincipal -GroupId "S-1-5-32-544" -RunLevel Highest
 
 # 5. Ajustes adicionales
 $Settings = New-ScheduledTaskSettingsSet `
