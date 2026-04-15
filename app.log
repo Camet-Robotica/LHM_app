@@ -8,3 +8,7 @@ Traceback (most recent call last):
     from capture import TelemetryLogger
 ModuleNotFoundError: No module named 'capture'
 [2026-04-14 11:09:21] INFO [HardwareTelemetry] Cache sincronizada con BD: 44 sensores conocidos.
+[2026-04-14 13:53:35] INFO [MainApp] Stylesheet cargado: C:\Users\herna\OneDrive\Desktop\LHM_app\app\assets\style.qss
+[2026-04-14 13:53:36] INFO [MainApp] Aplicación iniciada.
+[2026-04-14 13:53:44] INFO [HardwareTelemetry] Cache sincronizada con BD: 44 sensores conocidos.
+[2026-04-14 13:54:01] INFO [MainApp] Aplicación cerrada con código 0.
