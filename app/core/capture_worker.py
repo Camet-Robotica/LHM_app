@@ -68,7 +68,6 @@ class CaptureWorker(QThread):
         self.records_inserted.emit(n)
         self.log_message.emit(
             f"✓ Inserción OK — {n} registros enviados "
-            f"(total acumulado: {self._records_count:,})"
         )
 
     # ─── Ciclo principal del QThread ──────────────────────────────────────────
