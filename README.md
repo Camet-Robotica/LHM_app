@@ -150,11 +150,13 @@ La aplicación genera **tres archivos de log** independientes:
 
 ## Notas Adicionales
 
-- **Versión de LibreHardwareMonitor**: con la 0.9.5 que trae este repo, en una PC con Ryzen 7
-  9700X y placa Gigabyte B650I AX no se lee la temperatura ni el consumo del CPU, ni el chip de la
-  placa (voltajes y ventiladores): LHM no da valor y la app guardaba 0. La versión anterior de la
-  captura, con la 0.9.6 y el driver PawnIO 2.1.0, sí los leía en esa misma PC. Conviene pasar
-  `LibreHardwareMonitorLib.dll` (y sus dependencias) a la 0.9.6 o más nueva y recompilar.
+- **Versión de LibreHardwareMonitor**: el repo trae la 0.9.6 (`LibreHardwareMonitorLib.dll` y sus
+  dependencias). Con la 0.9.5 que traía antes, en una PC con Ryzen 7 9700X y placa Gigabyte
+  B650I AX no se leía la temperatura ni el consumo del CPU, ni el chip de la placa (voltajes y
+  ventiladores); la versión anterior de la captura, con la 0.9.6 y el driver PawnIO 2.1.0, sí
+  los leía en esa misma PC. `build.py` solo mete en el ejecutable `LibreHardwareMonitorLib.dll`:
+  las dependencias se cargan de la carpeta del programa, así que tienen que ser de la misma
+  versión (el `Updater.exe` las actualiza con git al arrancar).
 - Un sensor sin valor ya no se inserta como 0: simplemente no se inserta en ese ciclo.
 - **Ejecutable compilado**: el `Updater.exe` actualiza el código con git, pero si existe
   `LHM_Capture.exe` lanza ese ejecutable. Para que un cambio de código llegue a una PC hay
