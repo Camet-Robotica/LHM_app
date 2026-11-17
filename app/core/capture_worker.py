@@ -65,6 +65,7 @@ class CaptureWorker(QThread):
         """Callback llamado por TelemetryLogger tras cada inserción exitosa.
         Corre en el hilo del QThread, pero Qt encola las señales de forma segura."""
         self._records_count += n
+        self.db_connected.emit(True)  # puede haber conectado después del arranque
         self.records_inserted.emit(n)
         self.log_message.emit(
             f"✓ Inserción OK — {n} registros enviados"
@@ -90,13 +91,19 @@ class CaptureWorker(QThread):
             # __init__ realiza: conexión DB + init LHM + carga cache + build sensor_plan
             self._logger_instance = TelemetryLogger(on_insert=self._on_insert)
 
-            self.db_connected.emit(True)
-            self.log_message.emit(
-                f"Conexión a base de datos establecida. "
-                f"Plan: {len(self._logger_instance.sensor_plan)} sensores activos. "
-                f"Intervalo: {self._logger_instance.update_time}s | "
-                f"Tabla: {self._logger_instance.table_name}"
-            )
+            conectado = self._logger_instance.conn is not None
+            self.db_connected.emit(conectado)
+            if conectado:
+                self.log_message.emit(
+                    f"Conexión a base de datos establecida. "
+                    f"Plan: {len(self._logger_instance.sensor_plan)} sensores activos. "
+                    f"Intervalo: {self._logger_instance.update_time}s | "
+                    f"Tabla: {self._logger_instance.table_name}"
+                )
+            else:
+                self.log_message.emit(
+                    "Sin conexión con la base: guardo la copia local y reintento solo."
+                )
             self.status_changed.emit("running")
 
         except Exception as e:

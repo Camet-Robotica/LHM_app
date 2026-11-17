@@ -34,6 +34,19 @@ Agente de escritorio para Windows que captura métricas de hardware en tiempo re
      CLIENT_TABLE_NAME=<nombre_tabla_cliente>
      UPDATE_TIME=10
      ```
+   - Opcionales (con su valor por defecto):
+     ```
+     # Tipos de sensor de LHM que se dan de alta solos en la tabla Sensor si no están
+     # (por ejemplo "CCD1 (Tdie)" de AMD o las temperaturas de las memorias DDR5).
+     AUTO_SENSOR_TYPES=Temperature,Voltage
+     # Segundos entre reintentos de conexión a la base (al arrancar y si se corta).
+     DB_RETRY_SECONDS=30
+     # Copia local en CSV (una fila por lectura, una columna por sensor), haya base o no.
+     # "no" la apaga. Ruta relativa a la carpeta del programa.
+     LOCAL_DIR=datos_locales
+     LOCAL_SENSOR_TYPES=Temperature,Voltage,Power,Fan,Load
+     LOCAL_RETENTION_DAYS=14
+     ```
 
 3. **Ejecutar el instalador como administrador:**
    ```
@@ -125,7 +138,28 @@ La aplicación genera **tres archivos de log** independientes:
 
 ---
 
+## Si la PC se corta
+
+- Si al arrancar la base no responde (por ejemplo, la red todavía no levantó), la captura
+  sigue igual: guarda la copia local y reintenta la conexión cada `DB_RETRY_SECONDS`.
+- Cada fila de la copia local (`datos_locales\telemetria_<fecha>_<hora>.csv`) se fuerza a
+  disco, así la última lectura antes de un corte de luz o de un reset queda guardada.
+- Al arrancar, `reinicios.csv` anota cómo terminó la sesión anterior de Windows (pantalla
+  azul con su código, reset en seco o reinicio pedido), la hora del último dato guardado y
+  la temperatura más alta en esa última lectura. Lee el registro de eventos con `wevtutil`.
+
 ## Notas Adicionales
+
+- **Versión de LibreHardwareMonitor**: con la 0.9.5 que trae este repo, en una PC con Ryzen 7
+  9700X y placa Gigabyte B650I AX no se lee la temperatura ni el consumo del CPU, ni el chip de la
+  placa (voltajes y ventiladores): LHM no da valor y la app guardaba 0. La versión anterior de la
+  captura, con la 0.9.6 y el driver PawnIO 2.1.0, sí los leía en esa misma PC. Conviene pasar
+  `LibreHardwareMonitorLib.dll` (y sus dependencias) a la 0.9.6 o más nueva y recompilar.
+- Un sensor sin valor ya no se inserta como 0: simplemente no se inserta en ese ciclo.
+- **Ejecutable compilado**: el `Updater.exe` actualiza el código con git, pero si existe
+  `LHM_Capture.exe` lanza ese ejecutable. Para que un cambio de código llegue a una PC hay
+  que recompilar (`python build.py`) o borrar `LHM_Capture.exe` para que corra el código
+  con el `venv`.
 
 - **`LibreHardwareMonitor`**: Biblioteca de monitoreo de hardware de código abierto para Windows. Requiere permisos de administrador.
 - **Sensores dinámicos**: Los sensores con patrón variable (ej. `CPU Core #N`, `GPU Fan #N`) se auto-registran en la base de datos la primera vez que se detectan.
