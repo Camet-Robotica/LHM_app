@@ -27,7 +27,7 @@ CONFIRMACION_SEGUNDOS = int(os.getenv("CONFIRMACION_DESCONEXION", 30))
 SILENCIO_SEGUNDOS = int(os.getenv("SILENCIO_DESCONEXION", 30))
 
 # Cada cuánto corre el detector. Es la granularidad: sumá hasta este valor al
-# tiempo total de aviso. Cada corrida hace un MAX(timestamp) por tabla de cliente.
+# tiempo total de aviso. Cada corrida lee ultimo_contacto (hora de llegada).
 JOB_SEGUNDOS = int(os.getenv("INTERVALO_DETECCION", 20))
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -102,13 +102,26 @@ def implement_monitoring_logic():
         print("✅ Función fn_auditar_umbrales creada/actualizada.")
 
         # ── 3. FUNCIÓN: REGISTRAR RECONEXIÓN ──────────────────────────────────
-        # Cuando llega un nuevo dato de un cliente que estaba desconectado,
-        # se cierra el registro abierto en auditoria_clientes.
+        # Cada dato que llega anota la hora de llegada (del servidor) en
+        # ultimo_contacto. Si el cliente estaba desconectado, se cierra el
+        # registro abierto en auditoria_clientes con esa misma hora.
+        #
+        # Si una planta está viva, y cuánto duró un corte, se mide con la hora
+        # del servidor y no con el `timestamp` que pone la PC: un reloj atrasado
+        # o datos que llegan con demora abrían desconexiones falsas, y la
+        # reconexión informaba la duración según los datos (17/11/2026).
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ultimo_contacto (
+                cliente  TEXT PRIMARY KEY,
+                recibido TIMESTAMPTZ NOT NULL
+            );
+        """)
         cur.execute(f"""
             CREATE OR REPLACE FUNCTION fn_registrar_reconexion()
             RETURNS TRIGGER AS $$
             DECLARE
                 v_cliente VARCHAR;
+                v_ahora   TIMESTAMPTZ := now();
             BEGIN
                 -- Resolvemos el nombre real de la tabla (si se dispara en un chunk, buscamos su padre)
                 SELECT parent.relname INTO v_cliente
@@ -121,6 +134,14 @@ def implement_monitoring_logic():
                     v_cliente := TG_TABLE_NAME;
                 END IF;
 
+                -- Hora de llegada según el servidor. now() es la misma en toda la
+                -- inserción, así que un lote de muchas filas escribe una sola vez.
+                INSERT INTO ultimo_contacto AS u (cliente, recibido)
+                VALUES (v_cliente, v_ahora)
+                ON CONFLICT (cliente) DO UPDATE
+                    SET recibido = EXCLUDED.recibido
+                    WHERE u.recibido < EXCLUDED.recibido;
+
                 -- Evento abierto que nunca se avisó (alerta = 0): fue lag de ingesta,
                 -- no una desconexión. El cliente volvió con su buffer intacto y sin
                 -- perder datos. Se borra sin dejar rastro y sin disparar NOTIFY.
@@ -129,11 +150,11 @@ def implement_monitoring_logic():
                    AND fin_desconexion IS NULL
                    AND alerta           = 0;
 
-                -- Si queda un evento abierto (ya avisado), lo cerramos.
+                -- Si queda un evento abierto (ya avisado), lo cerramos con la hora del servidor.
                 UPDATE auditoria_clientes
                 SET
-                    fin_desconexion = NEW.timestamp AT TIME ZONE '{TIMEZONE}',
-                    duracion        = (NEW.timestamp AT TIME ZONE '{TIMEZONE}') - inicio_desconexion
+                    fin_desconexion = v_ahora,
+                    duracion        = v_ahora - inicio_desconexion
                 WHERE cliente          = v_cliente
                   AND fin_desconexion IS NULL;
 
@@ -197,14 +218,21 @@ def implement_monitoring_logic():
                       AND table_schema = 'public'
                 ) LOOP
                     BEGIN
-                        -- Leemos el último timestamp (naive en local) de la tabla del cliente 
-                        -- y lo interpretamos en la zona definida para obtener el TIMESTAMPTZ absoluto.
-                        EXECUTE format(
-                            'SELECT MAX(timestamp) AT TIME ZONE %L FROM %I',
-                            v_tz, r.table_name
-                        ) INTO v_ultimo_dato;
+                        -- Última llegada según el servidor (ultimo_contacto). Si la planta
+                        -- no mandó nada desde que existe esa tabla, se usa su último
+                        -- timestamp (naive en local) interpretado en la zona definida.
+                        SELECT recibido INTO v_ultimo_dato
+                          FROM ultimo_contacto
+                         WHERE cliente = r.table_name;
 
-                        -- Si la tabla está vacía o el último dato es reciente, saltamos.
+                        IF NOT FOUND THEN
+                            EXECUTE format(
+                                'SELECT MAX(timestamp) AT TIME ZONE %L FROM %I',
+                                v_tz, r.table_name
+                            ) INTO v_ultimo_dato;
+                        END IF;
+
+                        -- Si la tabla está vacía o la última llegada es reciente, saltamos.
                         IF v_ultimo_dato IS NULL OR v_ultimo_dato > v_ahora - v_ventana_silencio THEN
                             CONTINUE;
                         END IF;
@@ -222,7 +250,7 @@ def implement_monitoring_logic():
                             INSERT INTO auditoria_clientes (inicio_desconexion, cliente)
                             VALUES (v_ultimo_dato, r.table_name);
 
-                            RAISE NOTICE 'Desconexión detectada para %: último dato en % (hora ARG)',
+                            RAISE NOTICE 'Desconexión detectada para %: última llegada %',
                                 r.table_name, v_ultimo_dato;
                         END IF;
 
@@ -232,9 +260,9 @@ def implement_monitoring_logic():
                 END LOOP;
 
                 -- ── CONFIRMACIÓN: avisar sólo lo que sigue caído ──────────────
-                -- El evento se abre a los 60 s de silencio pero no se anuncia hasta
-                -- que la ausencia de datos supera silencio + confirmación. Si el
-                -- cliente reaparece antes, fn_registrar_reconexion ya lo borró.
+                -- El evento se abre a los {SILENCIO_SEGUNDOS} s sin llegadas pero no se anuncia
+                -- hasta que el silencio supera silencio + confirmación. Si el cliente
+                -- reaparece antes, fn_registrar_reconexion ya lo borró.
                 FOR r IN (
                     SELECT cliente, inicio_desconexion
                     FROM auditoria_clientes
