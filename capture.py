@@ -65,6 +65,16 @@ DYNAMIC_REGEX = [
     (re.compile(r'^GPU Fan #\d+.*$', re.IGNORECASE),     'fan'),
 ]
 
+# Nombres que no se dan de alta solos aunque su tipo esté en AUTO_SENSOR_TYPES:
+# valores fijos que LHM informa como temperatura (límites y resolución del sensor
+# de las memorias DDR5, temperaturas de aviso y críticas del disco), el VID que
+# pide cada núcleo y la "distancia a TjMax" de Intel (repite la temperatura).
+# Se cambia con AUTO_SENSOR_EXCLUDE ("" = ninguno).
+AUTO_EXCLUDE_DEFAULT = r"Limit|Resolution|Distance to TjMax|^Warning Temperature$|^Critical Temperature$|VID$"
+
+# Candado de la base para dar de alta sensores de a uno (ver _register_sensor).
+CANDADO_ALTA_SENSOR = "lhm_app.alta_sensor"
+
 # Errores de red o de base que no deben frenar la captura: se reintenta.
 ERRORES_BD = (psycopg2.OperationalError, psycopg2.InterfaceError, OSError, ConnectionError)
 
@@ -73,6 +83,19 @@ def _tipos_desde_entorno(nombre: str, por_defecto: str) -> set[str]:
     """Lista de tipos de sensor de LHM separada por comas (ej. 'Temperature,Voltage')."""
     valor = os.getenv(nombre, por_defecto)
     return {t.strip().upper() for t in valor.split(',') if t.strip()}
+
+
+def _regex_desde_entorno(nombre: str, por_defecto: str) -> 're.Pattern | None':
+    """Expresión regular de una variable de entorno (sin distinguir mayúsculas).
+    Vacía devuelve None; si no es válida se usa la de por defecto."""
+    valor = os.getenv(nombre, por_defecto).strip()
+    if not valor:
+        return None
+    try:
+        return re.compile(valor, re.IGNORECASE)
+    except re.error as e:
+        logger.warning(f"{nombre} no es una expresión regular válida ({e}): uso '{por_defecto}'.")
+        return re.compile(por_defecto, re.IGNORECASE)
 
 
 # ─── Copia local ────────────────────────────────────────────────────────────
@@ -289,6 +312,8 @@ class TelemetryLogger:
         # Tipos de sensor que se dan de alta solos en la tabla Sensor si no están
         # (así entran, por ejemplo, la temperatura del CPU de AMD y los voltajes).
         self.auto_types = _tipos_desde_entorno("AUTO_SENSOR_TYPES", "Temperature,Voltage")
+        # Nombres que no se dan de alta solos (valores fijos y VID).
+        self.auto_exclude = _regex_desde_entorno("AUTO_SENSOR_EXCLUDE", AUTO_EXCLUDE_DEFAULT)
         # Tipos de sensor que van a la copia local.
         self.local_types = _tipos_desde_entorno("LOCAL_SENSOR_TYPES", "Temperature,Voltage,Power,Fan,Load")
         self.conn = None
@@ -413,6 +438,11 @@ class TelemetryLogger:
                 self.cache_sensor[key] = pat_id
                 return pat_id
 
+        # Los valores fijos y los VID (AUTO_SENSOR_EXCLUDE) no se dan de alta solos;
+        # si alguien los carga a mano en la tabla Sensor, entran por el paso 1.
+        if self.auto_exclude and self.auto_exclude.search(s_name):
+            return None
+
         # 3. Auto-registro si coincide con un patrón regex conocido
         s_type_lower = s_type.lower()
         for compiled_re, expected_type in DYNAMIC_REGEX:
@@ -428,25 +458,32 @@ class TelemetryLogger:
         return None
 
     def _register_sensor(self, s_name: str, s_type: str) -> int | None:
-        """Da de alta el sensor en la tabla Sensor (o toma el id si ya existe)."""
+        """Da de alta el sensor en la tabla Sensor (o toma el id si ya existe).
+
+        En la base, sensor_id no se numera solo (no tiene secuencia): el número lo
+        pone la app, el más alto + 1. El candado de la base (pg_advisory_xact_lock)
+        hace que dos PCs que arrancan a la vez den de alta de a una y no tomen el
+        mismo número; se suelta solo con el commit o el rollback."""
         key = (s_name.upper(), s_type.upper())
         try:
             with self.conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO Sensor (sensor_name, sensor_type) VALUES (%s, %s) "
-                    "ON CONFLICT DO NOTHING RETURNING sensor_id",
-                    (s_name, s_type)
-                )
+                cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (CANDADO_ALTA_SENSOR,))
+                # Otra PC pudo darlo de alta después de que esta cargó la cache.
+                cur.execute("SELECT sensor_id FROM Sensor WHERE sensor_name=%s AND sensor_type=%s", (s_name, s_type))
                 res = cur.fetchone()
-                if res:
-                    new_id = res[0]
-                else:
-                    cur.execute("SELECT sensor_id FROM Sensor WHERE sensor_name=%s AND sensor_type=%s", (s_name, s_type))
-                    new_id = cur.fetchone()[0]
-
-                self.conn.commit()
+                nuevo = res is None
+                if nuevo:
+                    cur.execute(
+                        "INSERT INTO Sensor (sensor_id, sensor_name, sensor_type) "
+                        "SELECT COALESCE(MAX(sensor_id), 0) + 1, %s, %s FROM Sensor RETURNING sensor_id",
+                        (s_name, s_type)
+                    )
+                    res = cur.fetchone()
+            self.conn.commit()
+            new_id = res[0]
             self.cache_sensor[key] = new_id
-            logger.info(f"Sensor dinámico auto-registrado: {s_name} ({s_type}) → id={new_id}")
+            if nuevo:
+                logger.info(f"Sensor dinámico auto-registrado: {s_name} ({s_type}) → id={new_id}")
             return new_id
         except Exception as e:
             try:
