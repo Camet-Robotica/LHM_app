@@ -29,3 +29,7 @@ build/
 
 # Logs
 *.log
+
+# Copia local de la telemetría y registro de reinicios
+datos_locales/
+reinicios.csv
