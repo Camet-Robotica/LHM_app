@@ -38,7 +38,12 @@ Agente de escritorio para Windows que captura métricas de hardware en tiempo re
      ```
      # Tipos de sensor de LHM que se dan de alta solos en la tabla Sensor si no están
      # (por ejemplo "CCD1 (Tdie)" de AMD o las temperaturas de las memorias DDR5).
+     # La tabla Sensor no numera sola: la app le pone el número siguiente al más alto.
      AUTO_SENSOR_TYPES=Temperature,Voltage
+     # Nombres (expresión regular, sin distinguir mayúsculas) que no se dan de alta
+     # solos: valores fijos como los límites de las memorias o la temperatura de aviso
+     # del disco, el VID de cada núcleo y la distancia a TjMax de Intel. Vacío = todos.
+     AUTO_SENSOR_EXCLUDE=Limit|Resolution|Distance to TjMax|^Warning Temperature$|^Critical Temperature$|VID$
      # Segundos entre reintentos de conexión a la base (al arrancar y si se corta).
      DB_RETRY_SECONDS=30
      # Copia local en CSV (una fila por lectura, una columna por sensor), haya base o no.
